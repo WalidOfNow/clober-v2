@@ -1,0 +1,67 @@
+# Prediction-Market CLOB Flow with Polymarket Conditional Tokens
+
+This document explains how the current Clober CLOB contracts can run a prediction market using the Polymarket conditional token primitives that live under `src/polymarket`. It focuses on how the existing CLOB logic is used without modifying the matching engine, and it calls out optional changes that would make the experience closer to a fully collateralized prediction market.
+
+## Components
+
+- **OutcomeTokenWrapper (`src/polymarket/OutcomeTokenWrapper.sol`)** – Wraps a Polymarket ERC1155 outcome token into an ERC20 that the CLOB can trade. Holders can unwrap to the original ERC1155 outcome token at any time.
+- **OutcomeTokenFactory (`src/polymarket/OutcomeTokenFactory.sol`)** – Deploys wrappers for specific ERC1155 outcome token IDs and records the backing Conditional Tokens contract.
+- **ConditionalTokensHook (`src/polymarket/ConditionalTokensHook.sol`)** – Hook contract used in every prediction-market book. It validates the base/quote wrappers during `open`, enforces the trading cutoff and resolution checks during `make`/`take`, and lets the owner mark which outcome won. Market metadata keyed by `BookId` is stored here.
+- **BookManager (`src/BookManager.sol`)** – Unchanged matching engine that expects two ERC20 currencies (`base` and `quote`) plus optional hook callbacks. Orders are still ERC721 positions minted by the book manager.
+
+## Book composition
+
+Each orderbook represents the market between two outcome tokens for the same Polymarket condition.
+
+- `base` = ERC20 wrapper for one outcome (e.g., YES).
+- `quote` = ERC20 wrapper for the complementary outcome (e.g., NO).
+- Both wrappers must be created against the same Conditional Tokens contract; the hook rejects mismatches.
+- Fee policies, tick spacing, and `unitSize` are configured exactly like a standard CLOB book.
+
+## Lifecycle and flows
+
+### 1) Prepare outcome wrappers
+
+Create wrappers for the Polymarket outcome ERC1155s via `OutcomeTokenFactory.createOutcomeToken(tokenId, name, symbol)`. Anyone holding the ERC1155 can wrap by calling `depositFor`, and unwrap later with `withdrawTo`.
+
+### 2) Open a book
+
+Call `BookManager.open` through a locker as usual, passing a `BookKey` whose `base` and `quote` are the YES/NO wrapper addresses and whose `hooks` address is `ConditionalTokensHook`.
+
+Encode `MarketCreationParams` into `hookData`:
+- `conditionId`, `yesTokenId`, `noTokenId` – identify the Polymarket condition and its ERC1155 outcome IDs.
+- `cutoffTime` – last timestamp when new orders or trades are allowed.
+- `yesWrapper` / `noWrapper` – optional existing wrapper addresses; pass `address(0)` to deploy new ones via the factory.
+
+`beforeOpen` in the hook records the market metadata and ensures the provided base/quote wrappers match the expected Conditional Tokens contract.
+
+### 3) Place and fill orders
+
+Use `BookManager.make` and `BookManager.take` exactly as in the base CLOB. The hook’s `beforeMake` and `beforeTake` simply check that:
+- The market exists and is not resolved.
+- The current timestamp is before `cutoffTime`.
+
+Settlement is unchanged: traders pay and receive ERC20 outcome wrappers. Users who want the underlying ERC1155s (or final collateral after oracle resolution) unwrap through the wrapper contract; the CLOB itself only moves the ERC20 wrappers.
+
+### 4) Cancel and claim
+
+`beforeCancel` and `beforeClaim` ensure the order belongs to a known market but otherwise allow the normal flow. The CLOB still mints order NFTs and lets makers claim remaining liquidity the same way as any other market.
+
+### 5) Resolution
+
+Once the oracle resolves the Polymarket condition off-chain, the hook owner calls `resolveMarket(bookId, winningTokenId)` to mark which outcome won (`yesTokenId` or `noTokenId`). This blocks further `make`/`take` attempts because `_verifyOpen` will revert after resolution. Traders then unwrap their winning ERC20 outcome wrappers back to ERC1155 and redeem through the Conditional Tokens contract for collateral.
+
+## How this works without core changes
+
+The design keeps the matching engine and settlement math unchanged. By turning each Polymarket outcome into an ERC20, the CLOB can treat outcomes as standard fungible assets. The hook enforces market validity (matching wrappers, cutoff, resolution) so the engine does not need to know about conditional-token semantics. Because Polymarket redemption happens in the Conditional Tokens contract, no CLOB code changes are needed to cash-settle winners—holders of the winning wrapper simply unwrap and redeem post-resolution.
+
+## Optional/next-step changes
+
+If you want a closer parity with Polymarket’s single-collateral UX instead of direct outcome-token swaps, consider:
+
+- **Collateralized order entry** – Extend hooks or `BookManager` to lock a single collateral token and mint/burn outcome wrappers on the fly when orders are made or taken, so users never touch ERC1155s directly.
+- **Post-resolution gating** – Enhance `beforeClaim` to restrict claims on losing-side orders or to auto-redeem winning-side balances into collateral during claim.
+- **Metadata surfacing** – Add view helpers or emitted events that expose question text, oracle address, and resolution timestamp alongside `BookId` so indexers can render prediction markets without off-chain mapping.
+- **LP/payoff helpers** – Provide hook functions to batch unwrap and redeem to collateral for users after resolution, or to net out complementary outcome positions held by the same trader.
+
+These improvements would add UX polish but are not required for the CLOB to list and trade Polymarket outcomes using the current contracts.
