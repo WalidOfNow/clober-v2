@@ -66,6 +66,16 @@ If you want a closer parity with Polymarket’s single-collateral UX instead of 
 
 These improvements would add UX polish but are not required for the CLOB to list and trade Polymarket outcomes using the current contracts.
 
+## Minting both sides when crossed buys meet
+
+In Polymarket, two complementary **buy** intents (e.g., buy NO at 0.4 and buy YES at 0.6) can meet each other and immediately mint a YES/NO pair out of collateral. The current wrapper-only design cannot mint exposure on the fly because the CLOB expects pre-existing ERC20 balances. To reproduce the “mint both sides” behavior you need a collateral-aware hook + router that sit in front of the engine:
+
+1. **Treat quote debits as collateral deposits.** Configure the book with base = YES wrapper and quote = NO wrapper as before, but have your locker/router intercept `_accountDelta` so that when the engine debits quote on `make`/`take` it actually pulls collateral (e.g., USDC) into a hook-held escrow instead of requiring pre-minted NO. You can do this by extending the locker used to call `BookManager` so it reroutes quote transfers to the hook contract.
+2. **Mint outcome wrappers during matching.** Implement `afterTake` in `ConditionalTokensHook` (flip the permission bit in the constructor) to read the executed `takenUnit` and call `ConditionalTokens.splitPositions` for that many collateral units. Send the newly minted YES wrapper to the YES buyer and the NO wrapper to the NO buyer. Fees are still charged per the existing maker/taker policies; the hook just sources the underlying outcome supply.
+3. **Handle unmatched liquidity.** When a buy order rests on the book, the router should hold its collateral in escrow. If the order is canceled or claimed, return the collateral; if it is filled, let `afterTake` consume the matching amount of escrow to mint the corresponding outcome token to the taker. This mirrors Polymarket’s “collateral-backed intention” without touching the matching math.
+
+With this pattern, two opposing buys don’t need any pre-minted YES/NO. Their collateral flows into the hook, `afterTake` mints one YES and one NO for each matched unit, and the normal CLOB price/fee logic determines how much collateral each side spends for its share.
+
 ## Where splitting and merging fit
 
 Polymarket users normally **split** collateral into complementary outcome tokens (e.g., YES/NO) and later **merge** those tokens back into the original collateral. The CLOB does not need to implement splitting/merging inside the matching engine because the Conditional Tokens contracts and the ERC20 wrappers already provide that lifecycle:
