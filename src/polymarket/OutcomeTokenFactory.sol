@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {IERC1155} from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
-
 import {OutcomeTokenWrapper} from "./OutcomeTokenWrapper.sol";
+import {IConditionalTokens} from "./interfaces/IConditionalTokens.sol";
 
 /// @title OutcomeTokenFactory
 /// @notice Deploys ERC20 wrappers for Polymarket outcome ERC1155 tokens
 contract OutcomeTokenFactory {
     /// @notice Conditional Tokens contract that minted the ERC1155 outcomes
-    IERC1155 public immutable conditionalTokens;
+    IConditionalTokens public immutable conditionalTokens;
 
     event OutcomeTokenCreated(uint256 indexed tokenId, address wrapper);
 
-    constructor(IERC1155 conditionalTokens_) {
+    constructor(IConditionalTokens conditionalTokens_) {
         conditionalTokens = conditionalTokens_;
     }
 

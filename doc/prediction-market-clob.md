@@ -90,3 +90,13 @@ If you want the CLOB to offer **in-book splitting/merging convenience**, you cou
 - Add helper methods (outside the matching engine) that atomically split → trade → merge for users who want to stay in collateral terms.
 
 These additions still avoid modifying the core matching engine: the engine only ever sees ERC20 balances, while the hook or auxiliary contracts handle translating collateral into outcome wrappers and vice versa.
+
+### Enabling split/merge inside CLOB fills
+
+`ConditionalTokensHook` now exposes an `afterTake` path that can mint or merge outcome pairs while a trade is being settled. Lockers can encode a `TakeHookData` payload in `hookData` to choose a `matchType`:
+
+- `Complementary` (default) – standard settlement, no collateral interactions.
+- `Mint` – pull `collateralSource` ERC20, call `splitPosition` on the configured conditional tokens contract, wrap both outcomes, and deliver YES/NO to the `baseRecipient` and `quoteRecipient` addresses.
+- `Merge` – pull YES/NO wrappers from `baseProvider`/`quoteProvider`, unwrap, call `mergePositions`, and send the resulting collateral to `collateralRecipient`.
+
+Books store the required conditional token metadata (`collateral`, `conditionId`, `parentCollectionId`, and `partition`) in `MarketCreationParams`, so lockers only supply routing addresses in `hookData`. This keeps the core matching engine unchanged while allowing Polymarket-style splitting and merging to occur atomically with order fills.

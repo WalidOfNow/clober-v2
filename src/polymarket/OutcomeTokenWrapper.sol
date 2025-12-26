@@ -3,18 +3,19 @@ pragma solidity ^0.8.20;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC1155Holder} from "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
-import {IERC1155} from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+
+import {IConditionalTokens} from "./interfaces/IConditionalTokens.sol";
 
 /// @title OutcomeTokenWrapper
 /// @notice Wraps a Polymarket conditional token (ERC1155) into an ERC20 that can be used by the CLOB
 contract OutcomeTokenWrapper is ERC20, ERC1155Holder {
     /// @notice Conditional Tokens contract backing the wrapped outcome token
-    IERC1155 public immutable conditionalTokens;
+    IConditionalTokens public immutable conditionalTokens;
 
     /// @notice The ERC1155 id representing the outcome
     uint256 public immutable tokenId;
 
-    constructor(IERC1155 conditionalTokens_, uint256 tokenId_, string memory name_, string memory symbol_)
+    constructor(IConditionalTokens conditionalTokens_, uint256 tokenId_, string memory name_, string memory symbol_)
         ERC20(name_, symbol_)
     {
         conditionalTokens = conditionalTokens_;
