@@ -99,4 +99,11 @@ These additions still avoid modifying the core matching engine: the engine only 
 - `Mint` – pull `collateralSource` ERC20, call `splitPosition` on the configured conditional tokens contract, wrap both outcomes, and deliver YES/NO to the `baseRecipient` and `quoteRecipient` addresses.
 - `Merge` – pull YES/NO wrappers from `baseProvider`/`quoteProvider`, unwrap, call `mergePositions`, and send the resulting collateral to `collateralRecipient`.
 
+### What happens to collateral during split/merge matches?
+
+- **Split (MatchType.Mint)** – For the matched size, the hook pulls collateral from `collateralSource` into itself, splits it via `conditionalTokens.splitPosition`, and immediately wraps the two outcome ERC1155s back into ERC20s. The freshly wrapped YES/NO are sent to `baseRecipient` and `quoteRecipient`, and the collateral remains locked inside the conditional tokens contract backing those two outcomes.【F:src/polymarket/ConditionalTokensHook.sol†L236-L248】
+- **Merge (MatchType.Merge)** – The hook pulls an equal amount of YES and NO wrappers from `baseProvider` and `quoteProvider`, unwraps them to ERC1155, and calls `conditionalTokens.mergePositions` to redeem the shared collateral. That redeemed collateral is then transferred to `collateralRecipient`, completing the merge for the matched size.【F:src/polymarket/ConditionalTokensHook.sol†L251-L266】
+
+In both paths the matching engine still settles in ERC20s; the hook just sources or returns collateral around the fill to mirror Polymarket’s split/merge semantics.
+
 Books store the required conditional token metadata (`collateral`, `conditionId`, `parentCollectionId`, and `partition`) in `MarketCreationParams`, so lockers only supply routing addresses in `hookData`. This keeps the core matching engine unchanged while allowing Polymarket-style splitting and merging to occur atomically with order fills.
