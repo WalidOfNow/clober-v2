@@ -65,3 +65,18 @@ If you want a closer parity with Polymarket’s single-collateral UX instead of 
 - **LP/payoff helpers** – Provide hook functions to batch unwrap and redeem to collateral for users after resolution, or to net out complementary outcome positions held by the same trader.
 
 These improvements would add UX polish but are not required for the CLOB to list and trade Polymarket outcomes using the current contracts.
+
+## Where splitting and merging fit
+
+Polymarket users normally **split** collateral into complementary outcome tokens (e.g., YES/NO) and later **merge** those tokens back into the original collateral. The CLOB does not need to implement splitting/merging inside the matching engine because the Conditional Tokens contracts and the ERC20 wrappers already provide that lifecycle:
+
+- **Splitting collateral** – Users interact directly with the Polymarket Conditional Tokens contract to split collateral into the ERC1155 outcome IDs. They can then wrap either side via `OutcomeTokenWrapper.depositFor` to obtain ERC20s tradable on the CLOB. No CLOB code path mints or burns outcome exposure.
+- **Trading** – Once wrapped, outcome ERC20s behave like any fungible asset inside the CLOB. Normal `make`/`take` matching applies; partial fills, price-time priority, and fee logic are unchanged.
+- **Merging (recombining)** – After trading, a user who holds complementary outcomes can unwrap both ERC20s back to ERC1155 and call `ConditionalTokens.mergePositions` to reclaim collateral. This happens entirely outside the CLOB; the hook does not need to track merged balances.
+
+If you want the CLOB to offer **in-book splitting/merging convenience**, you could extend the hook to optionally wrap the Polymarket calls:
+
+- Allow `beforeMake`/`beforeTake` to accept collateral plus a split/merge intent bit, then internally call `splitPositions` or `mergePositions` before forwarding ERC20 wrappers into the CLOB settlement flow.
+- Add helper methods (outside the matching engine) that atomically split → trade → merge for users who want to stay in collateral terms.
+
+These additions still avoid modifying the core matching engine: the engine only ever sees ERC20 balances, while the hook or auxiliary contracts handle translating collateral into outcome wrappers and vice versa.
